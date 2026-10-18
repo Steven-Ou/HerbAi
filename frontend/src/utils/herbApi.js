@@ -222,3 +222,22 @@ export async function streamBotanicalQuestion(userQuestion, onChunk) {
     }
   }
 }
+
+/**
+ * Wipes the current user's session telemetry from the SQL database.
+ */
+export async function clearSession() {
+  try {
+    const response = await fetch(`${BASE_URL}/api/clear-session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ session_id: getSessionId() }),
+    });
+    return response.ok;
+  } catch (error) {
+    console.error("Failed to clear session:", error);
+    return false;
+  }
+}
