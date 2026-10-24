@@ -796,9 +796,7 @@ export default function HerbAiDashboard() {
       box-sizing: border-box;
     }
 
-    .msg-bubble > div {
-      white-space: pre-wrap;
-    }
+    
     .msg-bubble.user {
       background-color: #a7f3d0;
     }
