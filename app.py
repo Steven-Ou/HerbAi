@@ -28,6 +28,7 @@ from database.db_manager import (
     insert_telemetry,
     get_conn,
     clear_session_telemetry,
+    clear_session_visual_memory,
 )  # noqa: E402
 from frontend.src.rag.query_engine import BotanicalQueryEngine  # noqa: E402
 from frontend.src.vision.detector import BotanicalDetector  # noqa: E402
@@ -61,7 +62,7 @@ class QueryRequest(BaseModel):
     question: str = None
     session_id: str = "default_session"
 
-    
+
 @app.get("/")
 def read_root():
     return {"status": "Herb-AI Backend is running smoothly."}
@@ -137,7 +138,7 @@ async def handle_image_upload(file: UploadFile, session_id: str = "default_sessi
     if not contents:
         raise HTTPException(status_code=400, detail="No image file provided.")
 
-    result = await asyncio.to_thread(vision_engine.analyze_image, contents)
+    result = await asyncio.to_thread(vision_engine.analyze_image, contents, session_id)
     predicted_plant = result.get("predicted_class")
 
     if predicted_plant:
@@ -223,25 +224,19 @@ def chat_alias(payload: QueryRequest):
         return {"response": "Please enter a specific question about the plant."}
     return process_query_text(q)
 
+
 @app.post("/api/clear-session")
-def clear_session_endpoint(payload: QueryRequest): # <-- Reusing your existing class!
+def clear_session_endpoint(payload: QueryRequest):  # <-- Reusing your existing class!
     try:
         # Wipe the SQL telemetry
         clear_session_telemetry(payload.session_id)
-        
-        # Wipe the ChromaDB visual memory for this specific user
-        try:
-            chroma_client = chromadb.PersistentClient(path=os.path.join(project_root, "chroma_storage"))
-            visual_collection = chroma_client.get_collection(name="visual_memory")
-            visual_collection.delete(where={"session_id": payload.session_id})
-        except Exception:
-            pass
-            
+        clear_session_visual_memory(payload.session_id)
+
         return {"status": "success", "message": "Session cleared."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
-    
+
+
 def background_video_scan(video_path: str, session_id: str):
     ACTIVE_SCANS.add(session_id)
     model_path = os.path.join(project_root, "best.pt")
@@ -336,7 +331,7 @@ def background_video_scan(video_path: str, session_id: str):
             print(
                 f"✅ [SCAN COMPLETE] {frame_number} frames analyzed. Saving context for ALL detected plants for session {session_id}"
             )
-            #loop that would generate every single thing it sees
+            # loop that would generate every single thing it sees
             # knowledge_gen = AutoKnowledgeGenerator()
             # vector_engine = LocalVectorStoreEngine()
 

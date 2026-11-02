@@ -1,5 +1,6 @@
 import os
 import psycopg2
+import json
 from typing import Tuple, Optional
 from dotenv import load_dotenv
 
@@ -174,5 +175,78 @@ def save_to_cache(query_text: str, ai_response: str) -> None:
     """,
         (query_text, ai_response),
     )
+    conn.commit()
+    conn.close()
+
+def store_knowledge_vector(doc_id: str, content: str, metadata: dict, embedding: list):
+    """Stores textbook botanical knowledge permanently in Supabase."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO botanical_knowledge (id, content, metadata, embedding)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (id) DO UPDATE 
+        SET content = EXCLUDED.content, metadata = EXCLUDED.metadata, embedding = EXCLUDED.embedding;
+        """,
+        (doc_id, content, json.dumps(metadata), str(embedding))
+    )
+    conn.commit()
+    conn.close()
+
+def query_knowledge_vector(embedding: list, limit: int = 6):
+    """Retrieves textbook context using cosine similarity."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT content, metadata, 1 - (embedding <=> %s) AS similarity
+        FROM botanical_knowledge
+        ORDER BY embedding <=> %s
+        LIMIT %s;
+        """,
+        (str(embedding), str(embedding), limit)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def store_visual_memory(memory_id: str, plant_name: str, session_id: str, embedding: list):
+    """Stores a temporary OpenCLIP vector for the active session."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO visual_memory (id, plant_name, session_id, embedding)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (id) DO NOTHING;
+        """,
+        (memory_id, plant_name, session_id, str(embedding))
+    )
+    conn.commit()
+    conn.close()
+
+def query_visual_memory(embedding: list, limit: int = 1):
+    """Finds the closest OpenCLIP visual match."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT plant_name, session_id, (embedding <-> %s) AS distance
+        FROM visual_memory
+        ORDER BY embedding <-> %s
+        LIMIT %s;
+        """,
+        (str(embedding), str(embedding), limit)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+def clear_session_visual_memory(session_id: str):
+    """Wipes the ephemeral visual vector memory for a session."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM visual_memory WHERE session_id = %s;", (session_id,))
     conn.commit()
     conn.close()

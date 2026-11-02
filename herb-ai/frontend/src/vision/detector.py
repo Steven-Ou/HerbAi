@@ -9,6 +9,7 @@ from PIL import Image
 from ultralytics import YOLO
 from google import genai
 from dotenv import load_dotenv
+from database.db_manager import query_visual_memory, store_visual_memory
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
@@ -47,28 +48,20 @@ class BotanicalDetector:
             image_features /= image_features.norm(dim=-1, keepdim=True)
         return image_features.cpu().numpy().tolist()[0]
 
-    def analyze_image(self, image_bytes: bytes) -> dict:
+    def analyze_image(
+        self, image_bytes: bytes, session_id: str = "default_session"
+    ) -> dict:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         image.thumbnail((640, 640))
-        engine = LocalVectorStoreEngine()
-
-        import chromadb
-
-        # Connect to the exact same Chroma instance as the RAG engine
-        chroma_client = chromadb.PersistentClient(
-            path=os.path.join(project_root, "chroma_storage")
-        )
-        visual_collection = chroma_client.get_or_create_collection(name="visual_memory")
 
         image_vector = self._get_image_vector(image)
+
+        # 1. CLOUD VECTOR MEMORY RECALL (Replaces ChromaDB)
         try:
-            memory_query = visual_collection.query(
-                query_embeddings=[image_vector], n_results=1
-            )
-            if memory_query["distances"] and memory_query["distances"][0]:
-                dist = memory_query["distances"][0][0]
-                if dist < 0.25:
-                    learned_name = memory_query["metadatas"][0][0]["plant_name"]
+            rows = query_visual_memory(image_vector, limit=1)
+            if rows:
+                learned_name, sid, dist = rows[0]
+                if dist < 0.25:  # HNSW cosine distance threshold
                     print(
                         f"⚡ Visual Memory Recall: {learned_name} (Distance: {dist:.3f})"
                     )
@@ -91,7 +84,6 @@ class BotanicalDetector:
                 if not self.gemini_client:
                     raise ValueError("Gemini Client not initialized.")
 
-                # FIXED: Removed the stray 'ss' syntax error at the end of this string
                 prompt = (
                     "Identify this botanical or medicinal substance. The image may contain dried, "
                     "processed roots, twigs, stems, or leaves rather than fresh living plants. "
@@ -177,15 +169,13 @@ class BotanicalDetector:
                     predicted_class = "Unidentified Anomaly"
                     confidence = 0.0
 
+        # 2. CLOUD VECTOR MEMORY STORAGE (Replaces ChromaDB)
         if confidence > 0.70 and predicted_class != "Unidentified Anomaly":
             try:
-                visual_collection.add(
-                    embeddings=[image_vector],
-                    metadatas=[{"plant_name": predicted_class}],
-                    ids=[f"img_{predicted_class}_{os.urandom(4).hex()}"],
-                )
+                mem_id = f"img_{predicted_class}_{os.urandom(4).hex()}"
+                store_visual_memory(mem_id, predicted_class, session_id, image_vector)
                 print(
-                    f"💾 Visual embedding stored in ChromaDB for future instant recall: {predicted_class}"
+                    f"💾 Visual embedding stored in pgvector for future instant recall: {predicted_class}"
                 )
             except Exception as save_err:
                 print(f"⚠️ Failed to store vector memory: {save_err}")
