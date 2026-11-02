@@ -296,6 +296,12 @@ export default function HerbAiDashboard() {
       placement: "left",
       disableBeacon: true,
     },
+    {
+      target: ".clear-session-btn",
+      content: "Use this to instantly wipe your current session telemetry and chat history, giving the AI a fresh memory slate.",
+      placement: "bottom",
+      disableBeacon: true,
+    },
   ];
 
   // Appends the outro ONLY on the first run
