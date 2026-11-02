@@ -12,6 +12,7 @@ import {
   streamBotanicalQuestion,
   checkScanStatus,
   predictPlantImage,
+  clearSession,
 } from "../utils/herbApi";
 
 const SHOW_SYSTEM_NOTICE = true;
@@ -227,6 +228,31 @@ export default function HerbAiDashboard() {
     }
     return () => clearInterval(interval);
   }, [isLiveScanning, isChatLoading]);
+
+  const handleClearSession = async () => {
+    setTelemetry([]);
+    setMessages([]);
+    setVideoSrc(null);
+    setImageSrc(null);
+    setVideoFile(null);
+    
+    if (isLiveScanning) {
+      setIsLiveScanning(false);
+      if (cameraRef.current?.srcObject) {
+        cameraRef.current.srcObject.getTracks().forEach((track) => track.stop());
+      }
+    }
+
+    setMessages([
+      {
+        role: "agent",
+        text: "🧹 **Session Cleared.** Memory, telemetry, and media caches have been wiped.",
+      },
+    ]);
+    
+    const { clearSession } = await import("../utils/herbApi");
+    await clearSession();
+  };
 
   // 4. TOUR STEPS WITH BEACONS DISABLED
   const baseSteps = [
@@ -1159,6 +1185,29 @@ export default function HerbAiDashboard() {
                 }}
               >
                 {isLiveScanning ? "🛑 Stop Camera" : "📱 Live Scanner"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleClearSession}
+                className="pixel-btn clear-session-btn"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "12px 8px",
+                  backgroundColor: "#ef4444",
+                  color: "#fff",
+                  border: "4px solid #1e293b",
+                  borderRadius: "8px",
+                  boxShadow: "4px 4px 0px #1e293b",
+                  cursor: "pointer",
+                  fontFamily: "'VT323', monospace",
+                  fontSize: "22px",
+                  fontWeight: "600",
+                }}
+              >
+                🧹 Clear Session
               </button>
             </div>
 
