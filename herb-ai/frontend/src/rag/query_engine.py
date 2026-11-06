@@ -1,49 +1,30 @@
 # herb-ai/src/rag/query_engine.py
-# cspell:disable
 import os
 import sys
-import time
-import sqlite3
-from typing import List, Any
+import json
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from google import genai
 from openai import OpenAI
 import httpx
-import chromadb
-import json
 
 # Ensure project root is accessible for imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-# Import the new cache functions from your db_manager
-from database.db_manager import get_cached_response, save_to_cache
+from database.db_manager import (
+    get_cached_response,
+    save_to_cache,
+    query_knowledge_vector,
+)
 from frontend.src.rag.know_gen import AutoKnowledgeGenerator
 from frontend.src.rag.vector_store import LocalVectorStoreEngine
 
 load_dotenv()
 
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-CHROMA_DB_DIR: str = os.path.abspath(
-    os.path.join(CURRENT_DIR, "../../../chroma_storage")
-)
-DB_PATH: str = os.path.abspath(
-    os.path.join(CURRENT_DIR, "../../../database/telemetry.db")
-)
-
 
 class BotanicalQueryEngine:
     def __init__(self) -> None:
-        """Initializes the GenAI Client and connects to the active Chroma vector store."""
-
-        project_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "../../../")
-        )
-        self.chroma_client = chromadb.PersistentClient(
-            path=os.path.join(project_root, "chroma_storage")
-        )
-
-        # A simple array to hold the conversation history
+        """Initializes the GenAI Client for cloud RAG generation."""
         self.chat_history = []
 
         self.gemini_client = (
@@ -65,11 +46,10 @@ class BotanicalQueryEngine:
             else None
         )
 
-    def get_collection(self):
-        return self.chroma_client.get_or_create_collection(name="botanical_knowledge")
+        print("⚡ [QUERY ENGINE] Loading SentenceTransformer embedding model...")
+        self.model = SentenceTransformer("all-mpnet-base-v2")
 
     def _get_unified_session_context(self, session_id: str = "default_session") -> str:
-        """Queries local telemetry tables to build a merged context window strictly for this user's session."""
         summary = "ACTIVE SESSION TELEMETRY & MULTIMODAL SNAPSHOT SUMMARY:\n"
         has_context = False
 
@@ -97,7 +77,6 @@ class BotanicalQueryEngine:
                     "🎥 [SESSION TELEMETRY RECORDS] (Ordered newest to oldest):\n"
                 )
                 for i, row in enumerate(rows):
-                    # Flag the newest item for the LLM
                     label = "[MOST RECENTLY SCANNED] " if i == 0 else ""
                     summary += f"- {label}Logged class '{row[0]}' across {row[1]} moving video frames (Max Confidence: {row[2]:.2f}).\n"
                 has_context = True
@@ -106,13 +85,9 @@ class BotanicalQueryEngine:
 
         if not has_context:
             return "No recent video telemetry scans or photograph uploads have been captured in this current interface session."
-
         return summary
 
-    model = SentenceTransformer("all-mpnet-base-v2")
-
     def _ensure_knowledge_exists(self, user_query: str, session_id: str):
-        """Checks if the user is asking about a detected plant and generates its profile JIT."""
         try:
             from database.db_manager import get_conn
 
@@ -134,19 +109,14 @@ class BotanicalQueryEngine:
 
             rebuild_needed = False
             kg = AutoKnowledgeGenerator()
-
             plants_to_generate = []
 
-            # 1. Check if specific plants were explicitly asked about
             for row in rows:
                 if row[0].lower() in user_query.lower():
                     plants_to_generate.append(row[0])
 
-            # 2. Fallback: If no specific plant is mentioned, generate the most recently scanned plant
             if not plants_to_generate and rows:
-                plants_to_generate = [
-                    row[0] for row in rows[:1]
-                ]  # Just grab the absolute newest 1
+                plants_to_generate = [row[0] for row in rows[:1]]
 
             for plant_name in plants_to_generate:
                 if kg.generate_profile_if_new(plant_name):
@@ -159,8 +129,7 @@ class BotanicalQueryEngine:
         except Exception as e:
             print(f"⚠️ JIT Generation failed: {e}")
 
-    def _get_query_embedding_with_retry(self, text: str) -> List[float]:
-        """Generates a query embedding using local SentenceTransformer."""
+    def _get_query_embedding_with_retry(self, text: str) -> list[float]:
         try:
             return self.model.encode(text).tolist()
         except Exception as e:
@@ -170,27 +139,20 @@ class BotanicalQueryEngine:
     def query_botanical_knowledge(
         self, user_query: str, session_id: str = "default_session", n_results: int = 6
     ) -> str:
-        """Retrieves textbook reference vectors and synthesizes an answer using local Ollama."""
         try:
             self._ensure_knowledge_exists(user_query, session_id)
-
             self.chat_history.append(f"User: {user_query}")
+            print("🔄 Cache miss. Proceeding with pgvector cloud search...")
 
-            print("🔄 Cache miss. Proceeding with vector search...")
             session_context = self._get_unified_session_context(session_id=session_id)
             query_vector = self._get_query_embedding_with_retry(user_query)
 
-            collection = self.get_collection()
-            search_results = collection.query(
-                query_embeddings=[query_vector], n_results=n_results
-            )
-
-            documents = search_results.get("documents")
-            retrieved_context = (
-                "\n---\n".join([doc for doc in documents[0] if doc is not None])
-                if documents and documents[0]
-                else "No relevant textbook data found."
-            )
+            # --- NEW PGVECTOR SEARCH ---
+            search_results = query_knowledge_vector(query_vector, limit=n_results)
+            if search_results:
+                retrieved_context = "\n---\n".join([row[0] for row in search_results])
+            else:
+                retrieved_context = "No relevant textbook data found."
 
             history_str = "\n".join(self.chat_history[-4:])
 
@@ -208,7 +170,6 @@ class BotanicalQueryEngine:
                 "Herb-AI Answer:"
             )
 
-            # NEW: Cascade to Gemini first to avoid the 5-minute HTTP timeout
             if self.gemini_client:
                 try:
                     response = self.gemini_client.models.generate_content(
@@ -243,7 +204,6 @@ class BotanicalQueryEngine:
                         f"⚠️ OpenAI/Groq generation failed: {e}. Falling back to Ollama..."
                     )
 
-            # FALLBACK: Existing Ollama implementation
             ollama_url = "http://localhost:11434/api/generate"
             payload = {
                 "model": "llama3.2",
@@ -268,26 +228,18 @@ class BotanicalQueryEngine:
     def stream_botanical_knowledge(
         self, user_query: str, session_id: str = "default_session", n_results: int = 6
     ):
-        """Streams the response chunk-by-chunk for the frontend typing effect."""
-
         self._ensure_knowledge_exists(user_query, session_id)
-
         self.chat_history.append(f"User: {user_query}")
 
         session_context = self._get_unified_session_context(session_id=session_id)
         query_vector = self._get_query_embedding_with_retry(user_query)
 
-        collection = self.get_collection()
-        search_results = collection.query(
-            query_embeddings=[query_vector], n_results=n_results
-        )
-
-        documents = search_results.get("documents")
-        retrieved_context = (
-            "\n---\n".join([doc for doc in documents[0] if doc is not None])
-            if documents and documents[0]
-            else "No relevant textbook data found."
-        )
+        # --- NEW PGVECTOR SEARCH ---
+        search_results = query_knowledge_vector(query_vector, limit=n_results)
+        if search_results:
+            retrieved_context = "\n---\n".join([row[0] for row in search_results])
+        else:
+            retrieved_context = "No relevant textbook data found."
 
         history_str = "\n".join(self.chat_history[-4:])
 
@@ -307,7 +259,6 @@ class BotanicalQueryEngine:
 
         full_answer = ""
 
-        # 1. Gemini Streaming
         if self.gemini_client:
             try:
                 response = self.gemini_client.models.generate_content_stream(
@@ -328,7 +279,6 @@ class BotanicalQueryEngine:
             model_to_use = (
                 "llama-3.3-70b-versatile" if self.groq_client else "gpt-4o-mini"
             )
-
             try:
                 response_stream = client_to_use.chat.completions.create(
                     model=model_to_use,
@@ -348,7 +298,6 @@ class BotanicalQueryEngine:
             except Exception as e:
                 print(f"⚠️ OpenAI/Groq stream failed: {e}. Falling back to Ollama...")
 
-        # 2. Ollama Fallback Streaming
         import json
 
         ollama_url = "http://localhost:11434/api/generate"
@@ -372,9 +321,3 @@ class BotanicalQueryEngine:
 
         self.chat_history.append(f"Herb-AI: {full_answer}")
         save_to_cache(user_query, full_answer)
-
-
-if __name__ == "__main__":
-    engine = BotanicalQueryEngine()
-    question = "What was the name of the herb photo I just uploaded?"
-    print(engine.query_botanical_knowledge(question))
