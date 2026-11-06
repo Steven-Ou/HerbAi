@@ -1,16 +1,18 @@
 # cspell:disable
-import cv2
 import os
 import sys
-from typing import Dict, Any, Tuple, List, cast
+from typing import Any, Dict, List, Tuple, cast
+
+import cv2
 import numpy as np
 from ultralytics import YOLO
 
 # Ensure database module can be imported cleanly depending on how main.py is executed
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from database.db_manager import insert_telemetry, add_new_plant
+from database.db_manager import add_new_plant, insert_telemetry
 from frontend.src.rag.know_gen import AutoKnowledgeGenerator
 from frontend.src.rag.vector_store import LocalVectorStoreEngine
+
 
 class BotanicalTracker:
     def __init__(self, model_path: str ="herb-ai/best.pt") -> None:

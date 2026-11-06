@@ -1,5 +1,6 @@
 import os
 from typing import List
+
 from sentence_transformers import SentenceTransformer
 
 current_dir = os.path.dirname(os.path.abspath(__file__))

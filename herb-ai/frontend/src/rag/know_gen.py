@@ -1,11 +1,12 @@
 # herb-ai/src/rag/know_gen.py
 import os
 import sys
+
 import requests
+from dotenv import load_dotenv
 from google import genai
 from huggingface_hub import InferenceClient
 from openai import OpenAI
-from dotenv import load_dotenv
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 

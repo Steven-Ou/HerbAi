@@ -1,6 +1,7 @@
 import os
-import httpx
+
 import chromadb
+import httpx
 import wikipedia
 
 # 1. THE PATH LINK: Perfectly matches query_engine.py

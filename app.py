@@ -1,19 +1,20 @@
 # app.py
+import asyncio
 import os
-import sys
 import shutil
+import sys
 import tempfile
 import traceback
-import cv2
 import uuid
+
 import chromadb
-import asyncio
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
+import cv2
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from huggingface_hub import HfApi
 from pydantic import BaseModel
 from ultralytics import YOLO
-from huggingface_hub import HfApi
 
 # Setup paths before local imports to satisfy Python module resolution
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,17 +24,17 @@ if project_root not in sys.path:
 
 # Ruff Rule E402 Bypass: We must manipulate sys.path before these imports
 from database.db_manager import (
-    init_db,
     add_new_plant,
-    insert_telemetry,
-    get_conn,
     clear_session_telemetry,
     clear_session_visual_memory,
+    get_conn,
+    init_db,
+    insert_telemetry,
 )  # noqa: E402
-from frontend.src.rag.query_engine import BotanicalQueryEngine  # noqa: E402
-from frontend.src.vision.detector import BotanicalDetector  # noqa: E402
 from frontend.src.rag.know_gen import AutoKnowledgeGenerator  # noqa: E402
+from frontend.src.rag.query_engine import BotanicalQueryEngine  # noqa: E402
 from frontend.src.rag.vector_store import LocalVectorStoreEngine  # noqa: E402
+from frontend.src.vision.detector import BotanicalDetector  # noqa: E402
 
 app = FastAPI(title="Herb-AI Medical Botanical API Hub")
 

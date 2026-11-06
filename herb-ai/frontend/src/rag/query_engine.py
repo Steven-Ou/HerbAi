@@ -1,20 +1,21 @@
 # herb-ai/src/rag/query_engine.py
+import json
 import os
 import sys
-import json
+
+import httpx
 from dotenv import load_dotenv
-from sentence_transformers import SentenceTransformer
 from google import genai
 from openai import OpenAI
-import httpx
+from sentence_transformers import SentenceTransformer
 
 # Ensure project root is accessible for imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from database.db_manager import (
     get_cached_response,
-    save_to_cache,
     query_knowledge_vector,
+    save_to_cache,
 )
 from frontend.src.rag.know_gen import AutoKnowledgeGenerator
 from frontend.src.rag.vector_store import LocalVectorStoreEngine

@@ -1,15 +1,16 @@
-import os
-import io
 import base64
-import httpx
+import io
+import os
 import sys
-import torch
+
+import httpx
 import open_clip
+import torch
+from database.db_manager import query_visual_memory, store_visual_memory
+from dotenv import load_dotenv
+from google import genai
 from PIL import Image
 from ultralytics import YOLO
-from google import genai
-from dotenv import load_dotenv
-from database.db_manager import query_visual_memory, store_visual_memory
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, "../../../"))

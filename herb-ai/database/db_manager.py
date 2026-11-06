@@ -1,7 +1,8 @@
-import os
-import psycopg2
 import json
-from typing import Tuple, Optional
+import os
+from typing import Optional, Tuple
+
+import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv()
