@@ -1,19 +1,16 @@
 import os
-import chromadb
 from typing import List
 from sentence_transformers import SentenceTransformer
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-CHROMA_DB_DIR = os.path.join(project_root, "chroma_storage")
+
+# Import the new pgvector storage function
+from database.db_manager import store_knowledge_vector
 
 
 class LocalVectorStoreEngine:
     def __init__(self) -> None:
-        self.chroma_client = chromadb.PersistentClient(path=CHROMA_DB_DIR)
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="botanical_knowledge"
-        )
         print("⚡ [VECTOR STORE] Loading SentenceTransformer embedding model...")
         self.embedding_model = SentenceTransformer("all-mpnet-base-v2")
 
@@ -26,7 +23,7 @@ class LocalVectorStoreEngine:
             return []
 
     def build_vector_store(self):
-        """Rebuilds the Chroma vector store from local knowledge text files."""
+        """Rebuilds the Supabase pgvector store from local knowledge text files."""
         text_dir = os.path.abspath(os.path.join(project_root, "data/knowledge_base"))
 
         if not os.path.exists(text_dir):
@@ -45,7 +42,7 @@ class LocalVectorStoreEngine:
                     metadatas.append({"source": filename})
                     ids.append(filename)
 
-        print(f"Building vector store with {len(documents)} documents...")
+        print(f"Building cloud pgvector store with {len(documents)} documents...")
         for i, doc in enumerate(documents):
             embedding = self._get_local_embedding(doc)
 
@@ -53,10 +50,9 @@ class LocalVectorStoreEngine:
                 print(f"⚠️ Skipping document {ids[i]}: Could not generate embedding.")
                 continue
 
-            self.collection.upsert(
-                ids=[ids[i]],
-                embeddings=[embedding],
-                documents=[doc],
-                metadatas=[metadatas[i]],
+            # Send the vector and textbook data permanently to Supabase
+            store_knowledge_vector(
+                doc_id=ids[i], content=doc, metadata=metadatas[i], embedding=embedding
             )
-        print("✅ Vector store build complete.")
+
+        print("✅ Supabase pgvector store build complete.")
