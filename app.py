@@ -35,6 +35,7 @@ from frontend.src.rag.know_gen import AutoKnowledgeGenerator  # noqa: E402
 from frontend.src.rag.query_engine import BotanicalQueryEngine  # noqa: E402
 from frontend.src.rag.vector_store import LocalVectorStoreEngine  # noqa: E402
 from frontend.src.vision.detector import BotanicalDetector  # noqa: E402
+from frontend.src.rag.omniroute import OmniRouter
 
 app = FastAPI(title="Herb-AI Medical Botanical API Hub")
 
