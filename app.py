@@ -227,7 +227,25 @@ def chat_alias(payload: QueryRequest):
     q = payload.question or payload.query_text
     if not q or q.strip() == "string":
         return {"response": "Please enter a specific question about the plant."}
-    return process_query_text(q)
+    
+    # 1. Semantic Gateway Analysis
+    route = omni_router.route_query(q)
+    
+    # 2. Dynamic Routing Execution
+    if route == "system_command":
+        if "clear" in q.lower() or "wipe" in q.lower():
+            clear_session_endpoint(payload)
+            return {"response": "🧹 System override executed: All session memory and telemetry have been wiped."}
+        return {"response": "System command acknowledged, but no action was configured."}
+        
+    elif route == "vision_telemetry":
+        print("👁️ Route: Redirecting to Vision Telemetry Analysis...")
+        # In the future, this can trigger a dedicated camera-only analysis function
+        return process_query_text(q) 
+        
+    else: # Default: clinical_rag
+        print("📚 Route: Redirecting to Clinical RAG Engine...")
+        return process_query_text(q)
 
 
 @app.post("/api/clear-session")
