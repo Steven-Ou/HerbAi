@@ -58,6 +58,9 @@ vision_engine = BotanicalDetector(model_path=os.path.join(project_root, "best.pt
 print("⚡ [BOOT] Pre-loading Vector RAG Engine...")
 query_engine = BotanicalQueryEngine()
 
+print("🔀 [BOOT] Initializing OmniRoute Gateway...")
+omni_router = OmniRouter(query_engine.model)
+
 
 class QueryRequest(BaseModel):
     query_text: str = None
