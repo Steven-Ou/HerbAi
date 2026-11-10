@@ -77,9 +77,14 @@ class AutoKnowledgeGenerator:
             f"CRITICAL RULES:\n"
             f"1. Treat this STRICTLY as a botanical medicine or Traditional Chinese Medicine (TCM) substance.\n"
             f"2. Focus EXCLUSIVELY on its medicinal effects, active chemical compounds, and traditional biological properties.\n"
-            f"3. DO NOT describe it as a medical condition. DO NOT hallucinate properties it does not have. If you do not know it, state 'Insufficient clinical data'.\n"
-            f"4. Format the output with clear, structured data points so it can be parsed into tables. Use Markdown.\n"
-            f"Keep it concise, rigorous, and professional. Avoid fluff."
+            f"3. DO NOT describe it as a medical condition.\n"
+            f"4. Format the output with clear Markdown tables.\n"
+            f"5. AT THE VERY END OF YOUR RESPONSE, you MUST include a strict JSON array wrapped in ```json ... ``` that maps 3 to 5 key relationships for a Knowledge Graph.\n"
+            f"Example JSON format:\n"
+            f"```json\n"
+            f'[\n  {{"source": "{plant_name}", "target": "Inflammation", "label": "reduces"}},\n'
+            f'  {{"source": "{plant_name}", "target": "Chlorophyll", "label": "contains"}}\n]\n'
+            f"```\n"
         )
 
         # 1. PRIMARY TIER: Gemini API Cascade
