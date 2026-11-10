@@ -14,6 +14,7 @@ import {
   predictPlantImage,
   clearSession,
 } from "../utils/herbApi";
+import GraphifyView from "./GraphifyView";
 
 const SHOW_SYSTEM_NOTICE = true;
 
