@@ -1,7 +1,8 @@
 # herb-ai/src/rag/know_gen.py
 import os
 import sys
-
+import re
+import json
 import requests
 from dotenv import load_dotenv
 from google import genai
@@ -130,12 +131,31 @@ class AutoKnowledgeGenerator:
                 )
                 response_text = response.choices[0].message.content.strip()
 
+                json_match = re.search(
+                    r"```json\s*(\[.*?\])\s*```", response_text, re.DOTALL
+                )
+                extracted_json = []
+                if json_match:
+                    try:
+                        extracted_json = json.loads(json_match.group(1))
+                        # Strip the JSON out of the textbook so the RAG context stays clean
+                        response_text = response_text.replace(
+                            json_match.group(0), ""
+                        ).strip()
+                    except Exception as e:
+                        print(f"⚠️ Failed to parse extracted JSON: {e}")
+
                 if response_text:
+                    # Save the textbook text
                     with open(target_path, "w", encoding="utf-8") as f:
                         f.write(response_text)
-                    print(
-                        f"✅ Successfully saved profile via OpenAI/Groq: {target_path}"
-                    )
+
+                    # Save the graph relationships side-by-side!
+                    json_path = target_path.replace(".txt", ".json")
+                    with open(json_path, "w", encoding="utf-8") as jf:
+                        json.dump(extracted_json, jf)
+
+                    print(f"✅ Successfully saved profile via Gemini: {target_path}")
                     return True
             except Exception as e:
                 print(f"⚠️ OpenAI/Groq failed: {e}. Trying HF next...")
