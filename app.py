@@ -211,11 +211,26 @@ def query_alias(payload: QueryRequest):
 
 
 @app.post("/api/query/stream")
-def query_stream_alias(payload: QueryRequest):
+async def query_stream_alias(payload: QueryRequest):
     q = payload.question or payload.query_text
     if not q or q.strip() == "string":
         raise HTTPException(status_code=400, detail="Invalid query")
 
+    # 1. Semantic Gateway Analysis intercepts the stream!
+    route = omni_router.route_query(q)
+    
+    if route == "system_command":
+        if "clear" in q.lower() or "wipe" in q.lower():
+            clear_session_endpoint(payload) # Instantly wipes the DB
+            async def system_response():
+                yield "🧹 System override executed: All session memory and telemetry have been wiped."
+            return StreamingResponse(system_response(), media_type="application/octet-stream")
+            
+        async def fallback_system():
+            yield "System command acknowledged, but no action was configured."
+        return StreamingResponse(fallback_system(), media_type="application/octet-stream")
+
+    # 2. For vision and RAG routes, proceed to the standard streaming LLM
     return StreamingResponse(
         query_engine.stream_botanical_knowledge(q, session_id=payload.session_id),
         media_type="application/octet-stream",
