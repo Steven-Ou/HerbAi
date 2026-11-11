@@ -1,24 +1,24 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import dynamic from "next/dynamic";
 
-// Dynamically import the graph to prevent Next.js SSR window errors
 const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
   ssr: false,
 });
 
 export default function GraphifyView({ telemetry }) {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
+  const containerRef = useRef(null);
+  const [dimensions, setDimensions] = useState({ width: 800, height: 350 });
 
   useEffect(() => {
     if (!telemetry || telemetry.length === 0) return;
 
-    // 1. Create the central User Session hub
-    const nodes = [{ id: "User Session", group: 0, val: 20, color: "#0f172a" }];
+    // Drastically reduced the 'val' size so they aren't giant blobs!
+    const nodes = [{ id: "User Session", group: 0, val: 2, color: "#0f172a" }];
     const links = [];
 
-    // 2. Loop through visual telemetry and link discovered plants
     telemetry.forEach((plant) => {
-      nodes.push({ id: plant.species, group: 1, val: 12, color: "#10b981" });
+      nodes.push({ id: plant.species, group: 1, val: 1.5, color: "#10b981" });
       links.push({
         source: "User Session",
         target: plant.species,
@@ -29,10 +29,29 @@ export default function GraphifyView({ telemetry }) {
     setGraphData({ nodes, links });
   }, [telemetry]);
 
+  // Make the WebGL canvas perfectly responsive to your UI panel
+  useEffect(() => {
+    if (containerRef.current) {
+      setDimensions({
+        width: containerRef.current.offsetWidth,
+        height: 350,
+      });
+    }
+    
+    const handleResize = () => {
+      if (containerRef.current) {
+        setDimensions({ width: containerRef.current.offsetWidth, height: 350 });
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   if (!telemetry || telemetry.length === 0) return null;
 
   return (
     <div
+      ref={containerRef}
       style={{
         height: "350px",
         width: "100%",
@@ -60,14 +79,36 @@ export default function GraphifyView({ telemetry }) {
         🕸️ Graphify Knowledge Web
       </h4>
       <ForceGraph2D
+        width={dimensions.width}
+        height={dimensions.height}
         graphData={graphData}
-        nodeLabel="id"
-        nodeColor="color"
         nodeRelSize={6}
-        linkColor={() => "#94a3b8"}
+        linkColor={() => "#cbd5e1"}
         linkDirectionalParticles={2}
         linkDirectionalParticleSpeed={0.005}
-        d3VelocityDecay={0.3}
+        d3VelocityDecay={0.2}
+        // Custom Canvas drawing to put the text directly on the nodes!
+        nodeCanvasObject={(node, ctx, globalScale) => {
+          const label = node.id;
+          const fontSize = 16 / globalScale;
+          ctx.font = `bold ${fontSize}px "VT323", monospace`;
+          const textWidth = ctx.measureText(label).width;
+          const bckgDimensions = [textWidth, fontSize].map(n => n + fontSize * 0.4);
+
+          ctx.fillStyle = "rgba(248, 250, 252, 0.9)";
+          ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2, ...bckgDimensions);
+
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillStyle = node.color;
+          ctx.fillText(label, node.x, node.y);
+          node.__bckgDimensions = bckgDimensions;
+        }}
+        nodePointerAreaPaint={(node, color, ctx) => {
+          ctx.fillStyle = color;
+          const bckgDimensions = node.__bckgDimensions;
+          bckgDimensions && ctx.fillRect(node.x - bckgDimensions[0] / 2, node.y - bckgDimensions[1] / 2, ...bckgDimensions);
+        }}
       />
     </div>
   );
