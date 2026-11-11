@@ -1395,6 +1395,8 @@ export default function HerbAiDashboard() {
                   </table>
                 )}
               </div>
+              {/* NEW GRAPHIFY COMPONENT */}
+              <GraphifyView telemetry={telemetry} />
             </div>
           </div>
 
