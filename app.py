@@ -218,17 +218,24 @@ async def query_stream_alias(payload: QueryRequest):
 
     # 1. Semantic Gateway Analysis intercepts the stream!
     route = omni_router.route_query(q)
-    
+
     if route == "system_command":
         if "clear" in q.lower() or "wipe" in q.lower():
-            clear_session_endpoint(payload) # Instantly wipes the DB
+            clear_session_endpoint(payload)  # Instantly wipes the DB
+
             async def system_response():
                 yield "🧹 System override executed: All session memory and telemetry have been wiped."
-            return StreamingResponse(system_response(), media_type="application/octet-stream")
-            
+
+            return StreamingResponse(
+                system_response(), media_type="application/octet-stream"
+            )
+
         async def fallback_system():
             yield "System command acknowledged, but no action was configured."
-        return StreamingResponse(fallback_system(), media_type="application/octet-stream")
+
+        return StreamingResponse(
+            fallback_system(), media_type="application/octet-stream"
+        )
 
     # 2. For vision and RAG routes, proceed to the standard streaming LLM
     return StreamingResponse(
@@ -242,33 +249,40 @@ def chat_alias(payload: QueryRequest):
     q = payload.question or payload.query_text
     if not q or q.strip() == "string":
         return {"response": "Please enter a specific question about the plant."}
-    
+
     # 1. Semantic Gateway Analysis
     route = omni_router.route_query(q)
-    
+
     # 2. Dynamic Routing Execution
     if route == "system_command":
         if "clear" in q.lower() or "wipe" in q.lower():
             clear_session_endpoint(payload)
-            return {"response": "🧹 System override executed: All session memory and telemetry have been wiped."}
-        return {"response": "System command acknowledged, but no action was configured."}
-        
+            return {
+                "response": "🧹 System override executed: All session memory and telemetry have been wiped."
+            }
+        return {
+            "response": "System command acknowledged, but no action was configured."
+        }
+
     elif route == "vision_telemetry":
         print("👁️ Route: Redirecting to Vision Telemetry Analysis...")
         # In the future, this can trigger a dedicated camera-only analysis function
-        return process_query_text(q) 
-        
-    else: # Default: clinical_rag
+        return process_query_text(q)
+
+    else:  # Default: clinical_rag
         print("📚 Route: Redirecting to Clinical RAG Engine...")
         return process_query_text(q)
 
 
 @app.post("/api/clear-session")
-def clear_session_endpoint(payload: QueryRequest):  # <-- Reusing your existing class!
+def clear_session_endpoint(payload: QueryRequest):
     try:
         # Wipe the SQL telemetry
         clear_session_telemetry(payload.session_id)
         clear_session_visual_memory(payload.session_id)
+
+        # FIX: Also wipe the AI's internal short-term chat memory!
+        query_engine.clear_history(payload.session_id)
 
         return {"status": "success", "message": "Session cleared."}
     except Exception as e:
