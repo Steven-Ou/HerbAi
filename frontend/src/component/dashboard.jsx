@@ -373,7 +373,7 @@ export default function HerbAiDashboard() {
         ...prev,
         {
           role: "agent",
-          text: "Analyzing static photograph structural features...",
+          text: "📡 **Uploading media to cloud vision engine...**\n\n*(Note: If the Hugging Face servers were asleep, this first scan may take up to 60 seconds to wake up the neural networks. Please do not click again!)*",
         },
       ]);
       try {
