@@ -1,4 +1,3 @@
-# herb-ai/src/rag/query_engine.py
 import json
 import os
 import sys
@@ -9,7 +8,6 @@ from google import genai
 from openai import OpenAI
 from sentence_transformers import SentenceTransformer
 
-# Ensure project root is accessible for imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from database.db_manager import (
@@ -25,8 +23,8 @@ load_dotenv()
 
 class BotanicalQueryEngine:
     def __init__(self) -> None:
-        """Initializes the GenAI Client for cloud RAG generation."""
-        self.chat_history = []
+        # FIX 1: Make chat history a dictionary mapped by unique user sessions!
+        self.chat_history = {}
 
         self.gemini_client = (
             genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
@@ -50,10 +48,13 @@ class BotanicalQueryEngine:
         print("⚡ [QUERY ENGINE] Loading SentenceTransformer embedding model...")
         self.model = SentenceTransformer("all-mpnet-base-v2")
 
+    def clear_history(self, session_id: str):
+        """Wipes the short-term chat memory for a specific user session."""
+        self.chat_history[session_id] = []
+
     def _get_unified_session_context(self, session_id: str = "default_session") -> str:
         summary = "ACTIVE SESSION TELEMETRY & MULTIMODAL SNAPSHOT SUMMARY:\n"
         has_context = False
-
         try:
             from database.db_manager import get_conn
 
@@ -141,21 +142,22 @@ class BotanicalQueryEngine:
         self, user_query: str, session_id: str = "default_session", n_results: int = 6
     ) -> str:
         try:
+            if session_id not in self.chat_history:
+                self.chat_history[session_id] = []
+
             self._ensure_knowledge_exists(user_query, session_id)
-            self.chat_history.append(f"User: {user_query}")
-            print("🔄 Cache miss. Proceeding with pgvector cloud search...")
+            self.chat_history[session_id].append(f"User: {user_query}")
 
             session_context = self._get_unified_session_context(session_id=session_id)
             query_vector = self._get_query_embedding_with_retry(user_query)
 
-            # --- NEW PGVECTOR SEARCH ---
             search_results = query_knowledge_vector(query_vector, limit=n_results)
             if search_results:
                 retrieved_context = "\n---\n".join([row[0] for row in search_results])
             else:
                 retrieved_context = "No relevant textbook data found."
 
-            history_str = "\n".join(self.chat_history[-4:])
+            history_str = "\n".join(self.chat_history[session_id][-4:])
 
             prompt = (
                 "You are Herb-AI, an expert medical botanical vision agent. Answer the user's question conversationally.\n"
@@ -178,7 +180,7 @@ class BotanicalQueryEngine:
                         model="gemini-3.5-flash", contents=prompt
                     )
                     answer = response.text.strip()
-                    self.chat_history.append(f"Herb-AI: {answer}")
+                    self.chat_history[session_id].append(f"Herb-AI: {answer}")
                     save_to_cache(user_query, answer)
                     return answer
                 except Exception as e:
@@ -198,27 +200,24 @@ class BotanicalQueryEngine:
                         temperature=0.3,
                     )
                     answer = response.choices[0].message.content.strip()
-                    self.chat_history.append(f"Herb-AI: {answer}")
+                    self.chat_history[session_id].append(f"Herb-AI: {answer}")
                     save_to_cache(user_query, answer)
                     return answer
-                except Exception as e:
-                    print(
-                        f"⚠️ OpenAI/Groq generation failed: {e}. Falling back to Ollama..."
-                    )
+                except Exception:
+                    pass
 
             ollama_url = "http://localhost:11434/api/generate"
             payload = {
                 "model": "llama3.2",
                 "prompt": prompt,
                 "stream": False,
-                "options": {"temperature": 0.3, "num_ctx": 1024, "num_thread": 4},
+                "options": {"temperature": 0.3},
             }
-
             with httpx.Client() as client:
                 response = client.post(ollama_url, json=payload, timeout=900.0)
                 if response.status_code == 200:
                     answer = response.json().get("response", "").strip()
-                    self.chat_history.append(f"Herb-AI: {answer}")
+                    self.chat_history[session_id].append(f"Herb-AI: {answer}")
                     save_to_cache(user_query, answer)
                     return answer
                 else:
@@ -230,20 +229,25 @@ class BotanicalQueryEngine:
     def stream_botanical_knowledge(
         self, user_query: str, session_id: str = "default_session", n_results: int = 6
     ):
+        # FIX 2: Instantly yield a status message to the UI so the user knows it hasn't frozen!
+        yield "📡 *[System: Syncing clinical database & checking cloud vectors...]*\n\n"
+
+        if session_id not in self.chat_history:
+            self.chat_history[session_id] = []
+
         self._ensure_knowledge_exists(user_query, session_id)
-        self.chat_history.append(f"User: {user_query}")
+        self.chat_history[session_id].append(f"User: {user_query}")
 
         session_context = self._get_unified_session_context(session_id=session_id)
         query_vector = self._get_query_embedding_with_retry(user_query)
 
-        # --- NEW PGVECTOR SEARCH ---
         search_results = query_knowledge_vector(query_vector, limit=n_results)
         if search_results:
             retrieved_context = "\n---\n".join([row[0] for row in search_results])
         else:
             retrieved_context = "No relevant textbook data found."
 
-        history_str = "\n".join(self.chat_history[-4:])
+        history_str = "\n".join(self.chat_history[session_id][-4:])
 
         prompt = (
             "You are Herb-AI, an expert medical botanical vision agent. Answer the user's question conversationally.\n"
@@ -271,11 +275,11 @@ class BotanicalQueryEngine:
                     if chunk.text:
                         full_answer += chunk.text
                         yield chunk.text
-                self.chat_history.append(f"Herb-AI: {full_answer}")
+                self.chat_history[session_id].append(f"Herb-AI: {full_answer}")
                 save_to_cache(user_query, full_answer)
                 return
-            except Exception as e:
-                print(f"⚠️ Gemini stream failed: {e}. Falling back to Ollama...")
+            except Exception:
+                pass
 
         if self.groq_client or self.openai_client:
             client_to_use = self.groq_client or self.openai_client
@@ -294,14 +298,11 @@ class BotanicalQueryEngine:
                         text_chunk = chunk.choices[0].delta.content
                         full_answer += text_chunk
                         yield text_chunk
-
-                self.chat_history.append(f"Herb-AI: {full_answer}")
+                self.chat_history[session_id].append(f"Herb-AI: {full_answer}")
                 save_to_cache(user_query, full_answer)
                 return
-            except Exception as e:
-                print(f"⚠️ OpenAI/Groq stream failed: {e}. Falling back to Ollama...")
-
-        import json
+            except Exception:
+                pass
 
         ollama_url = "http://localhost:11434/api/generate"
         payload = {
@@ -310,7 +311,6 @@ class BotanicalQueryEngine:
             "stream": True,
             "options": {"temperature": 0.3},
         }
-
         with httpx.Client() as client:
             with client.stream(
                 "POST", ollama_url, json=payload, timeout=300.0
@@ -322,5 +322,5 @@ class BotanicalQueryEngine:
                         full_answer += chunk_text
                         yield chunk_text
 
-        self.chat_history.append(f"Herb-AI: {full_answer}")
+        self.chat_history[session_id].append(f"Herb-AI: {full_answer}")
         save_to_cache(user_query, full_answer)
