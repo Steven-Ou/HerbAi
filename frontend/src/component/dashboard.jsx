@@ -264,7 +264,7 @@ export default function HerbAiDashboard() {
       disableBeacon: true,
     },
     {
-      target: ".media-upload-section",
+      target: ".upload-video-label",
       content:
         "Start here! Upload a video or image of a plant you want to identify.",
       placement: "right",
@@ -1116,7 +1116,7 @@ export default function HerbAiDashboard() {
               }}
             >
               <label
-                className="pixel-btn"
+                className="pixel-btn upload-video-label"
                 style={{
                   display: "flex",
                   alignItems: "center",
