@@ -51,24 +51,25 @@ class BotanicalDetector:
 
     def analyze_image(
         self, image_bytes: bytes, session_id: str = "default_session"
-    ) -> dict:
+    ) -> list:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         image.thumbnail((640, 640))
-
         image_vector = self._get_image_vector(image)
 
-        # 1. CLOUD VECTOR MEMORY RECALL (Replaces ChromaDB)
+        results_list = []
+
+        # 1. CLOUD VECTOR MEMORY RECALL
         try:
             rows = query_visual_memory(image_vector, limit=1)
             if rows:
                 learned_name, sid, dist = rows[0]
-                if dist < 0.25:  # HNSW cosine distance threshold
+                if dist < 0.25:
                     print(
                         f"⚡ Visual Memory Recall: {learned_name} (Distance: {dist:.3f})"
                     )
-                    return {"predicted_class": learned_name, "confidence": 0.98}
+                    return [{"predicted_class": learned_name, "confidence": 0.98}]
         except Exception as mem_err:
-            print(f"⚠️ Vector memory lookup bypassed: {mem_err}")
+            pass
 
         temp_target = "/tmp/temp_inference_target.jpg"
         image.save(temp_target)
@@ -78,19 +79,18 @@ class BotanicalDetector:
         predicted_class = results[0].names[top_idx]
         confidence = float(results[0].probs.top1conf)
 
-        cloud_success = False
         if confidence < 0.70:
-            print("🔍 YOLO confidence low. Attempting Cloud Vision...")
+            print(
+                "🔍 YOLO confidence low. Attempting Cloud Vision for multiple plants..."
+            )
             try:
                 if not self.gemini_client:
                     raise ValueError("Gemini Client not initialized.")
 
                 prompt = (
-                    "Identify this botanical or medicinal substance. The image may contain dried, "
-                    "processed roots, twigs, stems, or leaves rather than fresh living plants. "
-                    "Carefully consider dried TCM herbs like Xiancao (Mesona chinensis). "
-                    "Reply ONLY with the common botanical or TCM name. If you cannot identify it, "
-                    "or if it is not a medicinal plant, dried herb, or TCM ingredient, reply EXACTLY with 'Unidentified Anomaly'."
+                    "Identify all botanical or medicinal substances visible in this image. "
+                    "Reply ONLY with a comma-separated list of the common botanical or TCM names (e.g., 'Rosemary, Thyme, Mint'). "
+                    "If you cannot identify any, reply EXACTLY with 'Unidentified Anomaly'."
                 )
                 active_gemini_models = [
                     "gemini-3.6-flash",
@@ -99,36 +99,48 @@ class BotanicalDetector:
                     "gemini-2.5-flash",
                 ]
 
+                cloud_success = False
                 for gemini_model in active_gemini_models:
                     try:
-                        print(f"☁️ Attempting Cloud Vision with {gemini_model}...")
                         response = self.gemini_client.models.generate_content(
                             model=gemini_model, contents=[prompt, image]
                         )
-                        discovered_name = response.text.strip()
-                        if "Unidentified" in discovered_name or not discovered_name:
-                            predicted_class = "Unidentified Anomaly"
-                            confidence = 0.0
-                            cloud_success = True
-                        else:
-                            print(
-                                f"☁️ Cloud Vision Success: {discovered_name} via {gemini_model}"
+                        discovered_text = response.text.strip()
+
+                        if "Unidentified" in discovered_text or not discovered_text:
+                            results_list.append(
+                                {
+                                    "predicted_class": "Unidentified Anomaly",
+                                    "confidence": 0.0,
+                                }
                             )
-                            predicted_class = discovered_name
-                            confidence = 0.95
-                            cloud_success = True
+                        else:
+                            plant_names = [
+                                name.strip()
+                                for name in discovered_text.split(",")
+                                if name.strip()
+                            ]
+                            for name in plant_names:
+                                print(
+                                    f"☁️ Cloud Vision Found: {name} via {gemini_model}"
+                                )
+                                results_list.append(
+                                    {"predicted_class": name, "confidence": 0.95}
+                                )
+
+                        cloud_success = True
                         break
                     except Exception as model_error:
-                        print(f"⚠️ API rejection for {gemini_model}: {model_error}")
                         continue
 
                 if not cloud_success:
-                    raise RuntimeError("All available Gemini fallbacks exhausted.")
+                    raise RuntimeError("All Gemini fallbacks exhausted.")
 
             except Exception as cloud_error:
                 print(
                     f"☁️ Cloud Vision Exhausted ({cloud_error}). Auto-failing over to Edge Vision (Ollama)..."
                 )
+
                 buffered = io.BytesIO()
                 image.thumbnail((512, 512))
                 image.save(buffered, format="JPEG", quality=85)
@@ -141,11 +153,9 @@ class BotanicalDetector:
                             json={
                                 "model": "llava",
                                 "prompt": (
-                                    "Identify this botanical object. It may be dried, processed roots, twigs, "
-                                    "stems, or leaves rather than a fresh plant (e.g., dried Xiancao). "
-                                    "Reply ONLY with the common botanical or TCM name. If it is not a medicinal plant, "
-                                    "dried herb, or TCM ingredient, or you cannot identify it, reply EXACTLY with 'Unidentified Anomaly'. "
-                                    "Do not write sentences."
+                                    "Identify all botanical or medicinal substances visible in this image. "
+                                    "Reply ONLY with a comma-separated list of the common botanical or TCM names (e.g., 'Rosemary, Thyme'). "
+                                    "If you cannot identify any, reply EXACTLY with 'Unidentified Anomaly'."
                                 ),
                                 "images": [base64_image],
                                 "stream": False,
@@ -153,35 +163,45 @@ class BotanicalDetector:
                             timeout=120.0,
                         )
                         if resp.status_code == 200:
-                            discovered_name = resp.json().get("response", "").strip()
-                            if (
-                                not discovered_name
-                                or "Unidentified" in discovered_name
-                                or len(discovered_name.split()) > 4
-                            ):
-                                predicted_class = "Unidentified Anomaly"
-                                confidence = 0.0
+                            discovered_text = resp.json().get("response", "").strip()
+                            if not discovered_text or "Unidentified" in discovered_text:
+                                results_list.append(
+                                    {
+                                        "predicted_class": "Unidentified Anomaly",
+                                        "confidence": 0.0,
+                                    }
+                                )
                             else:
-                                print(f"🔌 Edge Vision Success: {discovered_name}")
-                                predicted_class = discovered_name
-                                confidence = 0.85
+                                plant_names = [
+                                    name.strip()
+                                    for name in discovered_text.split(",")
+                                    if name.strip()
+                                ]
+                                for name in plant_names:
+                                    print(f"🔌 Edge Vision Found: {name}")
+                                    results_list.append(
+                                        {"predicted_class": name, "confidence": 0.85}
+                                    )
                 except Exception as e:
                     print(f"❌ Inferences failed: {e}")
-                    predicted_class = "Unidentified Anomaly"
-                    confidence = 0.0
+                    results_list.append(
+                        {"predicted_class": "Unidentified Anomaly", "confidence": 0.0}
+                    )
+        else:
+            results_list.append(
+                {"predicted_class": predicted_class, "confidence": round(confidence, 2)}
+            )
 
-        # 2. CLOUD VECTOR MEMORY STORAGE (Replaces ChromaDB)
-        if confidence > 0.70 and predicted_class != "Unidentified Anomaly":
-            try:
-                mem_id = f"img_{predicted_class}_{os.urandom(4).hex()}"
-                store_visual_memory(mem_id, predicted_class, session_id, image_vector)
-                print(
-                    f"💾 Visual embedding stored in pgvector for future instant recall: {predicted_class}"
-                )
-            except Exception as save_err:
-                print(f"⚠️ Failed to store vector memory: {save_err}")
+        for res in results_list:
+            p_class = res["predicted_class"]
+            if res["confidence"] > 0.70 and p_class != "Unidentified Anomaly":
+                try:
+                    mem_id = f"img_{p_class}_{os.urandom(4).hex()}"
+                    store_visual_memory(mem_id, p_class, session_id, image_vector)
+                except Exception:
+                    pass
 
         if os.path.exists(temp_target):
             os.remove(temp_target)
 
-        return {"predicted_class": predicted_class, "confidence": round(confidence, 2)}
+        return results_list
