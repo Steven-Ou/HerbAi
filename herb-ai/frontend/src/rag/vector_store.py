@@ -25,6 +25,7 @@ class LocalVectorStoreEngine:
 
     def build_vector_store(self):
         """Rebuilds the Supabase pgvector store from local knowledge text files."""
+        import json # Ensure json is imported
         text_dir = os.path.abspath(os.path.join(project_root, "data/knowledge_base"))
 
         if not os.path.exists(text_dir):
@@ -37,10 +38,27 @@ class LocalVectorStoreEngine:
 
         for filename in os.listdir(text_dir):
             if filename.endswith(".txt"):
+                # NEW: Look for the matching .json relationships file
+                base_name = filename.replace(".txt", "")
+                json_path = os.path.join(text_dir, f"{base_name}.json")
+                
+                graph_relationships = []
+                if os.path.exists(json_path):
+                    try:
+                        with open(json_path, "r", encoding="utf-8") as jf:
+                            graph_relationships = json.load(jf)
+                    except Exception as e:
+                        print(f"⚠️ Could not read JSON for {base_name}: {e}")
+
                 with open(os.path.join(text_dir, filename), "r", encoding="utf-8") as f:
                     content = f.read()
                     documents.append(content)
-                    metadatas.append({"source": filename})
+                    
+                    # NEW: Inject the parsed JSON directly into the metadata column
+                    metadatas.append({
+                        "source": filename,
+                        "graph_relationships": graph_relationships
+                    })
                     ids.append(filename)
 
         print(f"Building cloud pgvector store with {len(documents)} documents...")
