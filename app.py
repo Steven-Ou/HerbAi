@@ -143,30 +143,38 @@ async def handle_image_upload(file: UploadFile, session_id: str = "default_sessi
     if not contents:
         raise HTTPException(status_code=400, detail="No image file provided.")
 
-    result = await asyncio.to_thread(vision_engine.analyze_image, contents, session_id)
-    predicted_plant = result.get("predicted_class")
+    # analyze_image now returns a LIST of dictionaries
+    results = await asyncio.to_thread(vision_engine.analyze_image, contents, session_id)
 
-    if predicted_plant:
-        print(f"☁️ Uploading {predicted_plant} to Hugging Face Vault...")
-        evidence_url = upload_to_huggingface(contents, predicted_plant)
+    first_plant = None
 
-        plant_id = add_new_plant(predicted_plant)
-        conf = result.get("confidence", 0.0)
+    for res in results:
+        predicted_plant = res.get("predicted_class")
+        conf = res.get("confidence", 0.0)
 
-        insert_telemetry(
-            session_id=session_id,
-            plant_id=plant_id,
-            frame_number=1,
-            bbox=(0, 0, 0, 0),
-            confidence_score=float(conf),
-            evidence_url=evidence_url,
-        )
+        if predicted_plant and predicted_plant != "Unidentified Anomaly":
+            if not first_plant:
+                first_plant = predicted_plant  # Keep track of the primary plant for the UI toast message
+
+            print(f"☁️ Uploading {predicted_plant} to Hugging Face Vault...")
+            evidence_url = upload_to_huggingface(contents, predicted_plant)
+
+            plant_id = add_new_plant(predicted_plant)
+
+            insert_telemetry(
+                session_id=session_id,
+                plant_id=plant_id,
+                frame_number=1,
+                bbox=(0, 0, 0, 0),
+                confidence_score=float(conf),
+                evidence_url=evidence_url,
+            )
 
     return {
         "status": "success",
-        "predicted_class": predicted_plant,
-        "confidence": result.get("confidence"),
-        "results": result,
+        "predicted_class": first_plant or "Unidentified Anomaly",
+        "confidence": results[0].get("confidence", 0.0) if results else 0.0,
+        "results": results,
     }
 
 
