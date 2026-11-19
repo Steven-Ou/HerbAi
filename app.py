@@ -117,6 +117,16 @@ def get_telemetry(session_id: str):
         print(f"Telemetry Fetch Error: {e}")
         return {"data": []}
 
+@app.get("/api/graph")
+def get_graph_endpoint(session_id: str = "default_session"):
+    try:
+        from database.db_manager import get_session_graph_data
+        data = get_session_graph_data(session_id)
+        return {"status": "success", "data": data}
+    except Exception as e:
+        print(f"Graph Fetch Error: {e}")
+        return {"status": "error", "data": {"plants": [], "relationships": []}}
+    
 
 def upload_to_huggingface(image_bytes: bytes, predicted_class: str) -> str:
     hf_token = os.getenv("HF_TOKEN")
