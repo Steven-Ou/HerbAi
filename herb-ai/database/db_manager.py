@@ -251,3 +251,44 @@ def clear_session_visual_memory(session_id: str):
     cursor.execute("DELETE FROM visual_memory WHERE session_id = %s;", (session_id,))
     conn.commit()
     conn.close()
+    
+def get_session_graph_data(session_id: str):
+    """Fetches all graph JSON relationships for plants detected in a session."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    
+    # 1. Get the unique plants scanned in this session
+    cursor.execute(
+        """
+        SELECT DISTINCT p.species_name 
+        FROM plants p 
+        JOIN telemetry t ON p.id = t.plant_id 
+        WHERE t.session_id = %s;
+        """,
+        (session_id,)
+    )
+    plants = [row[0] for row in cursor.fetchall()]
+    
+    all_relationships = []
+    # 2. Extract their JSON relationships from the metadata column
+    for plant in plants:
+        cursor.execute(
+            "SELECT metadata FROM botanical_knowledge WHERE id ILIKE %s;", 
+            (f"%{plant}%",)
+        )
+        rows = cursor.fetchall()
+        for row in rows:
+            if row and row[0]:
+                metadata = row[0]
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except:
+                        metadata = {}
+                
+                rels = metadata.get("graph_relationships", [])
+                if rels:
+                    all_relationships.extend(rels)
+                
+    conn.close()
+    return {"plants": plants, "relationships": all_relationships}
