@@ -241,3 +241,18 @@ export async function clearSession() {
     return false;
   }
 }
+
+/**
+ * Fetches JSON node relationships for Graphify from Supabase.
+ */
+export async function fetchGraphData() {
+  try {
+    const response = await fetch(`${BASE_URL}/api/graph?session_id=${getSessionId()}`);
+    if (!response.ok) return { plants: [], relationships: [] };
+    const result = await response.json();
+    return result.data;
+  } catch (error) {
+    console.error("Graph data fetch error:", error);
+    return { plants: [], relationships: [] };
+  }
+}
