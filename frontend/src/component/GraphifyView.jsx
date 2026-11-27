@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import dynamic from "next/dynamic";
+import { fetchGraphData } from "../utils/herbApi"; // Add this import!
 
 const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
   ssr: false,
@@ -13,41 +14,47 @@ export default function GraphifyView({ telemetry }) {
   useEffect(() => {
     if (!telemetry || telemetry.length === 0) return;
 
-    // Drastically reduced the 'val' size so they aren't giant blobs!
-    const nodes = [{ id: "User Session", group: 0, val: 2, color: "#0f172a" }];
-    const links = [];
+    async function loadGraph() {
+      const data = await fetchGraphData();
+      if (!data || !data.plants) return;
 
-    telemetry.forEach((plant) => {
-      nodes.push({ id: plant.species, group: 1, val: 1.5, color: "#10b981" });
-      links.push({
-        source: "User Session",
-        target: plant.species,
-        name: "detected",
+      const nodesMap = new Map();
+      const links = [];
+
+      // 1. Create the central User Session hub
+      nodesMap.set("User Session", { id: "User Session", group: 0, val: 2, color: "#0f172a" });
+
+      // 2. Map the detected plants
+      data.plants.forEach((plant) => {
+        nodesMap.set(plant, { id: plant, group: 1, val: 1.5, color: "#10b981" });
+        links.push({ source: "User Session", target: plant, name: "detected" });
       });
-    });
 
-    setGraphData({ nodes, links });
-  }, [telemetry]);
+      // 3. Map the deep JSON relationships from Supabase!
+      if (data.relationships) {
+        data.relationships.forEach((rel) => {
+          // Ensure target nodes exist (e.g. "Inflammation")
+          if (!nodesMap.has(rel.target)) {
+            nodesMap.set(rel.target, { id: rel.target, group: 2, val: 1, color: "#3b82f6" }); 
+          }
+          // Ensure source nodes exist
+          if (!nodesMap.has(rel.source)) {
+            nodesMap.set(rel.source, { id: rel.source, group: 2, val: 1, color: "#3b82f6" });
+          }
+          
+          links.push({
+            source: rel.source,
+            target: rel.target,
+            name: rel.label
+          });
+        });
+      }
 
-  // Make the WebGL canvas perfectly responsive to your UI panel
-  useEffect(() => {
-    if (containerRef.current) {
-      setDimensions({
-        width: containerRef.current.offsetWidth,
-        height: 350,
-      });
+      setGraphData({ nodes: Array.from(nodesMap.values()), links });
     }
     
-    const handleResize = () => {
-      if (containerRef.current) {
-        setDimensions({ width: containerRef.current.offsetWidth, height: 350 });
-      }
-    };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
-  if (!telemetry || telemetry.length === 0) return null;
+    loadGraph();
+  }, [telemetry]);
 
   return (
     <div
